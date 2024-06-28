@@ -21,6 +21,7 @@ abstract class ReplacementPolicy {
   def get_next_state(state: UInt, touch_ways: Seq[Valid[UInt]]): UInt = {
     touch_ways.foldLeft(state)((prev, touch_way) => Mux(touch_way.valid, get_next_state(prev, touch_way.bits), prev))
   }
+  def get_next_state(state: UInt, touch_way: UInt, hit: Bool, req_Acquire: Bool, req_prefetch: Bool, req_Hint: Bool, req_Acquire_Release: Bool, req_prefetch_Release: Bool, action: UInt, pn_action: UInt): UInt = {0.U}
   def get_replace_way(state: UInt): UInt
 }
 
@@ -29,6 +30,7 @@ object ReplacementPolicy {
     case "random" => new RandomReplacement(n_ways)
     case "lru"    => new TrueLRU(n_ways)
     case "plru"   => new PseudoLRU(n_ways)
+    case "chrome" => new CHROME(n_ways)
     case t => throw new IllegalArgumentException(s"unknown Replacement Policy type $t")
   }
 }
@@ -391,6 +393,70 @@ class SetAssocLRU(n_sets: Int, n_ways: Int, policy: String) extends SetAssocRepl
   def way(set: UInt) = logic.get_replace_way(state_vec(set))
 
 }
+
+class CHROME(n_ways: Int) extends ReplacementPolicy {
+  def nBits = 2 * n_ways
+  def perSet = true
+  private val state_reg = RegInit(0.U(nBits.W))
+  def state_read = WireDefault(state_reg)
+  def access(touch_way: UInt) = {}
+  def access(touch_ways: Seq[Valid[UInt]]) = {}
+  def way = 0.U
+  def miss = access(way)
+  def hit = {}
+  def get_next_state(state: UInt, touch_way: UInt) = 0.U
+  private val ways = n_ways.asUInt
+
+  // update age
+  override def get_next_state(state: UInt, touch_way: UInt, hit: Bool, req_Acquire: Bool, req_prefetch: Bool, req_Hint: Bool, req_Acquire_Release: Bool, req_prefetch_Release: Bool, action: UInt, pn_action: UInt): UInt = {
+    val State = Wire(Vec(n_ways, UInt(2.W)))
+    val nextState = Wire(Vec(n_ways, UInt(2.W)))
+    val increcement = 3.U(2.W) - State(touch_way)
+    // action to epv:
+    // (0,hit0), (1,hit1), (2,hit2), (3,hit3)
+    // (4,miss0), (5,miss1), (6,miss2), (7,miss3), (8,missbypass)
+    State.zipWithIndex.map {
+      case (e, i) =>
+        e := state(2 * i + 1, 2 * i) // cut UInt to Vec
+    }
+    nextState.zipWithIndex.map {
+      case (e, i) =>
+        e := Mux(i.U === touch_way,
+          Mux(req_Acquire && hit, 3.U,
+            Mux(req_prefetch && hit, 3.U,
+              Mux(req_Hint, 0.U,
+                Mux(req_Acquire_Release, action(1,0),
+                  Mux(req_prefetch_Release, pn_action(1,0), State(i)))))
+          ),
+          //          Mux(hit || invalid || (bypass && !invalid), State(i), State(i) + increcement)
+//          Mux(hit || invalid, State(i), State(i) + increcement)
+          // do not aging
+          Mux(true.B, State(i), State(i) + increcement)
+        )
+    }
+    Cat(nextState.map(x=>x).reverse)
+  }
+
+  def get_replace_way(state: UInt): UInt = {
+    val ageVec = Wire(Vec(n_ways, UInt(2.W)))
+    ageVec.zipWithIndex.map { case (e, i) =>
+      e := state(2 * i + 1, 2 * i)
+    }
+    // scan each way's age, find the way with max age
+    val maxageWayVec = Wire(Vec(n_ways, Bool()))
+    maxageWayVec.zipWithIndex.map { case (e, i) =>
+      val isLarger = Wire(Vec(n_ways, Bool()))
+      for (j <- 0 until n_ways) {
+        isLarger(j) := ageVec(j) > ageVec(i)
+      }
+      e := !(isLarger.contains(true.B))
+    }
+    PriorityEncoder(maxageWayVec)
+  }
+}
+
+
+
 
 // Synthesizable unit tests
 import freechips.rocketchip.unittest._
