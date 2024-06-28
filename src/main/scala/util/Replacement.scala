@@ -433,11 +433,13 @@ class TUBINS(n_ways: Int) extends ReplacementPolicy {
     nextState.zipWithIndex.map {
       case (e, i) =>
         e := Mux(i.U === touch_way,
-              Mux(req_type === 3.U, 3.U,                             // acq_hit
+              Mux(req_type === 3.U || (req_type === 2.U && invalid), 3.U,                             // acq_hit
                 Mux(req_type === 1.U, 0.U,                           // hint_hit
                   Mux(req_type === 0.U, Mux(invalid, 0.U, 1.U),                           // hint_miss
-                  Mux(req_type === 5.U, Mux(TC > 1.U, 0.U, Mux((DLcond1 && DLcond3) || (DLcond2 && DLcond3), 2.U, Mux(DLcond1 || DLcond2, 1.U, 0.U))),  // release hit
-                    Mux(req_type === 4.U, Mux(TC > 1.U, 0.U, Mux((DLcond1 && DLcond3) || (DLcond2 && DLcond3), 2.U, Mux(DLcond1 || DLcond2, 1.U, 0.U))),  // release miss
+//                  Mux(req_type === 5.U, Mux(TC > 1.U, 0.U, Mux((DLcond1 && DLcond3) || (DLcond2 && DLcond3), 2.U, Mux(DLcond1 || DLcond2, 1.U, 0.U))),  // release hit
+//                    Mux(req_type === 4.U, Mux(TC > 1.U, 0.U, Mux((DLcond1 && DLcond3) || (DLcond2 && DLcond3), 2.U, Mux(DLcond1 || DLcond2, 1.U, 0.U))),  // release miss
+                    Mux(req_type === 5.U, Mux(TC >= 0.U, 0.U, Mux((DLcond1 && DLcond3) || (DLcond2 && DLcond3), 2.U, Mux(DLcond1 || DLcond2, 1.U, 0.U))), // release hit
+                      Mux(req_type === 4.U, Mux(TC >= 0.U, 0.U, Mux((DLcond1 && DLcond3) || (DLcond2 && DLcond3), 2.U, Mux(DLcond1 || DLcond2, 1.U, 0.U))), // release miss
                       State(i)))))
           ),
 //          Mux(hit || invalid || (bypass && !invalid), State(i), State(i) + increcement)
