@@ -21,7 +21,7 @@ abstract class ReplacementPolicy {
   def get_next_state(state: UInt, touch_ways: Seq[Valid[UInt]]): UInt = {
     touch_ways.foldLeft(state)((prev, touch_way) => Mux(touch_way.valid, get_next_state(prev, touch_way.bits), prev))
   }
-  def get_next_state(state: UInt, touch_way: UInt, hit: Bool, req_Acquire: Bool, req_prefetch: Bool, req_Hint: Bool, req_Acquire_Release: Bool, req_prefetch_Release: Bool, action: UInt, pn_action: UInt): UInt = {0.U}
+  def get_next_state(state: UInt, touch_way: UInt, hit: Bool, req_Acquire: Bool, req_prefetch: Bool, req_Hint: Bool, req_Acquire_Release: Bool, req_prefetch_Release: Bool, action: UInt, pn_action: UInt, bypass: Bool): UInt = {0.U}
   def get_replace_way(state: UInt): UInt
 }
 
@@ -408,7 +408,7 @@ class CHROME(n_ways: Int) extends ReplacementPolicy {
   private val ways = n_ways.asUInt
 
   // update age
-  override def get_next_state(state: UInt, touch_way: UInt, hit: Bool, req_Acquire: Bool, req_prefetch: Bool, req_Hint: Bool, req_Acquire_Release: Bool, req_prefetch_Release: Bool, action: UInt, pn_action: UInt): UInt = {
+  override def get_next_state(state: UInt, touch_way: UInt, hit: Bool, req_Acquire: Bool, req_prefetch: Bool, req_Hint: Bool, req_Acquire_Release: Bool, req_prefetch_Release: Bool, action: UInt, pn_action: UInt, bypass: Bool): UInt = {
     val State = Wire(Vec(n_ways, UInt(2.W)))
     val nextState = Wire(Vec(n_ways, UInt(2.W)))
     val increcement = 3.U(2.W) - State(touch_way)
@@ -425,11 +425,12 @@ class CHROME(n_ways: Int) extends ReplacementPolicy {
           Mux(req_Acquire && hit, 3.U,
             Mux(req_prefetch && hit, 3.U,
               Mux(req_Hint, 0.U,
-                Mux(req_Acquire_Release, action(1,0),
-                  Mux(req_prefetch_Release, pn_action(1,0), State(i)))))
+                Mux(bypass, 3.U, // bypass release
+                  Mux(req_Acquire_Release, action(1, 0),
+                    Mux(req_prefetch_Release, pn_action(1, 0), State(i))))))
           ),
           //          Mux(hit || invalid || (bypass && !invalid), State(i), State(i) + increcement)
-//          Mux(hit || invalid, State(i), State(i) + increcement)
+          //          Mux(hit || invalid, State(i), State(i) + increcement)
           // do not aging
           Mux(true.B, State(i), State(i) + increcement)
         )
